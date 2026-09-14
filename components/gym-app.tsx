@@ -292,7 +292,7 @@ function AppShell({ tab, onTabChange, children }: { tab: AppTab; onTabChange: (t
       <section className="app-frame">
         <header className="topbar">
           <button className="wordmark" onClick={() => onTabChange('today')}><span>AI</span> GYM BRO</button>
-          <button className="streak-pill" aria-label="Six week training streak"><Flame /> 6 wk</button>
+          <span className="streak-pill" aria-label="Six-week workout streak"><Flame aria-hidden="true" /> 6-week streak</span>
         </header>
         {children}
         <nav className="bottom-nav" aria-label="Primary navigation">
