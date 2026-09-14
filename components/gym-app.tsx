@@ -194,6 +194,7 @@ export function GymApp() {
               onResume={() => setShowActive(true)}
               onCoach={() => openCoach('today')}
               onWhy={(recommendation) => setWhyRecommendation(recommendation)}
+              onOverview={() => setTab('history')}
               onPrograms={() => setTab('programs')}
             />
           )}
@@ -318,12 +319,13 @@ function ScreenTitle({ eyebrow, title, action }: { eyebrow: string; title: strin
   );
 }
 
-function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onPrograms }: {
+function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onOverview, onPrograms }: {
   state: GymState;
   onStart: () => void;
   onResume: () => void;
   onCoach: () => void;
   onWhy: (recommendation: Recommendation) => void;
+  onOverview: () => void;
   onPrograms: () => void;
 }) {
   const recommendation = state.recommendations.find((item) => item.id === 'rec-bench-250') ?? state.recommendations[0];
@@ -336,7 +338,7 @@ function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onPrograms }: {
       <ScreenTitle
         eyebrow={longDate.format(dateFromKey(state.today.date))}
         title={completed ? 'Good work.' : active ? 'Keep it moving.' : 'Time to press.'}
-        action={<button className="icon-button" aria-label="Training overview"><BarChart3 /></button>}
+        action={<button className="icon-button" aria-label="Training overview" onClick={onOverview}><BarChart3 /></button>}
       />
 
       {completed ? (
