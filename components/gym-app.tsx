@@ -515,7 +515,6 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
       <section className="active-content">
         <div className="lift-heading">
           <div><p className="eyebrow">Now lifting</p><h1>{exercise.shortName}</h1></div>
-          <button className="more-button" aria-label="More exercise actions"><CircleEllipsis /></button>
         </div>
 
         {current.originalExerciseId && (
@@ -943,7 +942,7 @@ function HistoryScreen({ state, onCoach }: { state: GymState; onCoach: () => voi
         <button onClick={onCoach}>Ask about this <ArrowRight /></button>
       </section>
 
-      <div className="section-heading"><div><h2>Recent workouts</h2><span>{filtered.length} sessions</span></div><button>All time <ChevronDown /></button></div>
+      <div className="section-heading"><div><h2>Recent workouts</h2><span>{filtered.length} sessions</span></div><span className="history-range">All time</span></div>
 
       <div className="history-list">
         {filtered.length === 0 ? (
@@ -1043,12 +1042,14 @@ function ProgramsScreen({ state, updateDay, addExercise, removeExercise, addDay,
 }) {
   const [editDay, setEditDay] = useState<ProgramDay>();
   const [newDayOpen, setNewDayOpen] = useState(false);
+  const [programActionsOpen, setProgramActionsOpen] = useState(false);
+  const todayProgramDay = state.program.days.find((day) => day.id === state.today.programDayId) ?? state.program.days[0];
   return (
     <div className="screen-scroll programs-screen">
       <ScreenTitle eyebrow="Current program" title="Train your way." action={<button className="icon-button" aria-label="Open exercise library" onClick={onLibrary}><LibraryBig /></button>} />
 
       <section className="program-hero">
-        <div className="program-hero-top"><span className="active-program-pill"><span /> Active</span><button><CircleEllipsis /></button></div>
+        <div className="program-hero-top"><span className="active-program-pill"><span /> Active</span><button aria-label="Program actions" onClick={() => setProgramActionsOpen(true)}><CircleEllipsis /></button></div>
         <h2>{state.program.name}</h2>
         <p>{state.program.description}</p>
         <div className="program-meta"><div><strong>{state.program.days.length}</strong><span>days</span></div><div><strong>W{state.program.week}</strong><span>current week</span></div><div><strong>Yours</strong><span>program owner</span></div></div>
@@ -1075,6 +1076,26 @@ function ProgramsScreen({ state, updateDay, addExercise, removeExercise, addDay,
 
       <ProgramEditor day={editDay} onClose={() => setEditDay(undefined)} updateDay={updateDay} addExercise={addExercise} removeExercise={removeExercise} />
       <NewDayDialog open={newDayOpen} onClose={() => setNewDayOpen(false)} addDay={addDay} />
+      <Dialog open={programActionsOpen} onOpenChange={setProgramActionsOpen}>
+        <DialogContent className="gym-dialog program-actions-dialog">
+          <DialogHeader>
+            <p className="dialog-kicker">{state.program.name}</p>
+            <DialogTitle>Program actions</DialogTitle>
+            <DialogDescription>Make a focused change without rebuilding the whole program.</DialogDescription>
+          </DialogHeader>
+          <div className="program-actions-list">
+            <button onClick={() => { setProgramActionsOpen(false); if (todayProgramDay) setEditDay(todayProgramDay); }} disabled={!todayProgramDay}>
+              <Pencil /><span><strong>Edit today’s training day</strong><small>Change its focus, duration, or exercises</small></span><ChevronRight />
+            </button>
+            <button onClick={() => { setProgramActionsOpen(false); onCoach(); }}>
+              <Sparkles /><span><strong>Ask AI to modify it</strong><small>Describe the smallest change you need</small></span><ChevronRight />
+            </button>
+            <button onClick={() => { setProgramActionsOpen(false); onLibrary(); }}>
+              <LibraryBig /><span><strong>Browse exercise library</strong><small>Review movements and substitutions</small></span><ChevronRight />
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1155,7 +1176,7 @@ function ProfileScreen({ state, updatePreferences, onReset }: {
     <div className="screen-scroll profile-screen">
       <ScreenTitle eyebrow="Preferences & memory" title="Train on your terms." />
       <section className="profile-card">
-        <div className="profile-avatar">BD</div><div><h2>Brian</h2><p>Intermediate · Powerbuilding</p></div><button><Pencil /></button>
+        <div className="profile-avatar">BD</div><div><h2>Brian</h2><p>Intermediate · Powerbuilding</p></div>
       </section>
 
       <SettingsSection title="AI control" description="You can change this anytime. Your explicit choices always override the AI.">
