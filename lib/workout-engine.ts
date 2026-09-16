@@ -1,4 +1,4 @@
-import { createInitialGymState, getExercise } from './gym-data';
+import { createInitialGymState, exerciseDatabase } from './gym-data';
 import type {
   GymState,
   PerformedSet,
@@ -97,18 +97,32 @@ export function validateWorkoutOperation(state: GymState, operation: WorkoutOper
     if (operation.changes.reps !== undefined && (operation.changes.reps < 1 || operation.changes.reps > 100)) {
       return { ok: false, error: 'Enter reps between 1 and 100.' };
     }
+    if (operation.changes.rpe !== undefined && (operation.changes.rpe < 5 || operation.changes.rpe > 10)) {
+      return { ok: false, error: 'RPE must be between 5 and 10.' };
+    }
+  }
+
+  if (operation.type === 'ADD_PLANNED_SET') {
+    const reps = operation.set.targetReps ?? operation.set.repRange?.[0];
+    if (reps === undefined || reps < 1 || reps > 100) {
+      return { ok: false, error: 'Add a valid rep target for the new set.' };
+    }
   }
 
   if (operation.type === 'SET_USER_WEIGHT' && (operation.weight <= 0 || operation.weight > 2000)) {
     return { ok: false, error: 'Enter a valid weight.' };
   }
 
-  if (operation.type === 'CHANGE_EXERCISE' && !getExercise(operation.replacementExerciseId)) {
+  if (operation.type === 'CHANGE_EXERCISE' && !exerciseDatabase.some((item) => item.id === operation.replacementExerciseId)) {
     return { ok: false, error: 'Choose an exercise from the exercise library.' };
   }
 
   if (operation.type === 'ADD_NOTE' && !operation.note.trim()) {
     return { ok: false, error: 'Write a note before saving it.' };
+  }
+
+  if (operation.type === 'SAVE_EXERCISE_MEMORY' && !operation.text.trim()) {
+    return { ok: false, error: 'Write the cue or observation before saving it.' };
   }
 
   return { ok: true };
@@ -170,7 +184,7 @@ function backoffRecommendation(state: GymState, exercise: WorkoutExercise, newSe
 function markExerciseProgress(exercise: WorkoutExercise) {
   if (exercise.status === 'skipped') return;
   const completedWorking = getWorkingSets(exercise).length;
-  const target = exercise.sessionTargetSets ?? exercise.plannedSets.filter((set) => !set.optional || true).length;
+  const target = exercise.sessionTargetSets ?? exercise.plannedSets.length;
   exercise.status = completedWorking >= target ? 'complete' : completedWorking > 0 ? 'active' : 'pending';
 }
 
@@ -260,12 +274,33 @@ export function applyWorkoutOperation(state: GymState, operation: WorkoutOperati
       set.id === operation.setId ? { ...set, ...operation.changes } : set,
     );
     markExerciseProgress(exercise);
+    const updatedSet = exercise.performedSets.find((set) => set.id === operation.setId);
+    if (updatedSet && ('rpe' in operation.changes || 'rir' in operation.changes || 'reps' in operation.changes)) {
+      const recommendation = backoffRecommendation(next, exercise, updatedSet);
+      if (recommendation) {
+        next.recommendations = next.recommendations.map((item) =>
+          item.exerciseId === exercise.exerciseId && item.status === 'active'
+            ? { ...item, status: 'accepted' as const }
+            : item,
+        );
+        next.recommendations.push(recommendation);
+      }
+    }
     return next;
   }
 
   if (operation.type === 'REMOVE_SET') {
     exercise.performedSets = exercise.performedSets.filter((set) => set.id !== operation.setId);
     markExerciseProgress(exercise);
+    return next;
+  }
+
+  if (operation.type === 'ADD_PLANNED_SET') {
+    exercise.plannedSets.push({
+      ...operation.set,
+      id: `planned-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    });
+    if (exercise.status === 'complete') exercise.status = 'active';
     return next;
   }
 
@@ -286,6 +321,19 @@ export function applyWorkoutOperation(state: GymState, operation: WorkoutOperati
 
   if (operation.type === 'ADD_NOTE') {
     exercise.notes.push(operation.note.trim());
+    return next;
+  }
+
+  if (operation.type === 'SAVE_EXERCISE_MEMORY') {
+    next.trainingMemories.unshift({
+      id: `memory-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      exerciseId: exercise.exerciseId,
+      kind: operation.kind,
+      text: operation.text.trim(),
+      confirmed: operation.confirmed,
+      source: operation.source,
+      createdAt: new Date().toISOString(),
+    });
     return next;
   }
 

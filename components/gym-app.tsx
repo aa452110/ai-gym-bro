@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
-  BarChart3,
   Bot,
   CalendarDays,
   Check,
@@ -15,7 +14,6 @@ import {
   CircleEllipsis,
   Clock3,
   Dumbbell,
-  Flame,
   History,
   Home,
   Info,
@@ -36,6 +34,7 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { ExerciseVisual } from '@/components/exercise-visual';
 import {
   Collapsible,
   CollapsibleContent,
@@ -60,7 +59,8 @@ import {
 } from '@/components/ui/sheet';
 import { Switch } from '@/components/ui/switch';
 import { Toaster, toast } from '@/components/ui/toast';
-import { coachPrompts, respondToCoach, substitutionsFor } from '@/lib/ai-coach';
+import { coachPrompts, respondToCoach } from '@/lib/ai-coach';
+import { rankSubstitutions, searchExercises } from '@/lib/exercise-search';
 import { exerciseDatabase, getExercise, warmupSequence } from '@/lib/gym-data';
 import type {
   AiAction,
@@ -194,7 +194,7 @@ export function GymApp() {
               onResume={() => setShowActive(true)}
               onCoach={() => openCoach('today')}
               onWhy={(recommendation) => setWhyRecommendation(recommendation)}
-              onOverview={() => setTab('history')}
+              onHistory={() => setTab('history')}
               onPrograms={() => setTab('programs')}
             />
           )}
@@ -292,7 +292,7 @@ function AppShell({ tab, onTabChange, children }: { tab: AppTab; onTabChange: (t
       <section className="app-frame">
         <header className="topbar">
           <button className="wordmark" onClick={() => onTabChange('today')}><span>AI</span> GYM BRO</button>
-          <span className="streak-pill" aria-label="Six-week workout streak"><Flame aria-hidden="true" /> 6-week streak</span>
+          <span className="product-principle">Training first.</span>
         </header>
         {children}
         <nav className="bottom-nav" aria-label="Primary navigation">
@@ -319,16 +319,17 @@ function ScreenTitle({ eyebrow, title, action }: { eyebrow: string; title: strin
   );
 }
 
-function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onOverview, onPrograms }: {
+function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onHistory, onPrograms }: {
   state: GymState;
   onStart: () => void;
   onResume: () => void;
   onCoach: () => void;
   onWhy: (recommendation: Recommendation) => void;
-  onOverview: () => void;
+  onHistory: () => void;
   onPrograms: () => void;
 }) {
-  const recommendation = state.recommendations.find((item) => item.id === 'rec-bench-250') ?? state.recommendations[0];
+  const benchWorkout = state.today.exercises.find((item) => item.exerciseId === 'bench-press' || item.originalExerciseId === 'bench-press');
+  const recommendation = [...state.recommendations].reverse().find((item) => item.exerciseId === 'bench-press');
   const completed = state.today.status === 'completed';
   const active = state.today.status === 'active';
   const completedSets = state.today.exercises.reduce((total, exercise) => total + getWorkingSets(exercise).length, 0);
@@ -338,7 +339,6 @@ function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onOverview, onP
       <ScreenTitle
         eyebrow={longDate.format(dateFromKey(state.today.date))}
         title={completed ? 'Good work.' : active ? 'Keep it moving.' : 'Time to press.'}
-        action={<button className="icon-button" aria-label="Training overview" onClick={onOverview}><BarChart3 /></button>}
       />
 
       {completed ? (
@@ -363,7 +363,9 @@ function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onOverview, onP
           {recommendation && (
             <div className="coach-note">
               <div className="coach-avatar"><Bot /></div>
-              <p><strong>Bench is moving.</strong> {recommendation.fact} I’d target 250 × 3 today.</p>
+              <p>{benchWorkout?.userSelectedWeight
+                ? <><strong>Your decision is set.</strong> You chose {benchWorkout.userSelectedWeight} × 3. I won’t override it.</>
+                : <><strong>Bench is moving.</strong> {recommendation.fact} {recommendation.recommendation}</>}</p>
               <button onClick={() => onWhy(recommendation)}>Why?</button>
             </div>
           )}
@@ -394,11 +396,11 @@ function TodayScreen({ state, onStart, onResume, onCoach, onWhy, onOverview, onP
         </article>
       )}
 
-      <button className="ask-card" onClick={onCoach}>
-        <div className="spark-icon"><Sparkles /></div>
-        <div><strong>{completed ? 'Ask about your training' : 'Need to adjust today?'}</strong><span>{completed ? 'Your answers come from recorded sets.' : 'Ask for a swap, a shorter session, or a weight check.'}</span></div>
-        <ArrowRight />
-      </button>
+      <div className="today-secondary-actions">
+        <button onClick={onHistory}><History /><span><strong>History</strong><small>Review recorded work</small></span></button>
+        <button onClick={onPrograms}><CalendarDays /><span><strong>Programs</strong><small>Edit the plan</small></span></button>
+        <button onClick={onCoach}><Sparkles /><span><strong>Ask Gym Bro</strong><small>Adjust today if needed</small></span></button>
+      </div>
     </div>
   );
 }
@@ -437,6 +439,9 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
   const warmups = getWarmups(current);
   const working = getWorkingSets(current);
   const recommendation = getLatestRecommendation(state, current);
+  const exerciseCue = state.trainingMemories.find((memory) =>
+    memory.exerciseId === current.exerciseId && memory.kind === 'cue' && memory.confirmed,
+  );
   const elapsed = useElapsedTime(workout.startedAt);
   const [mode, setMode] = useState<'warmup' | 'working'>(() => exercise.isMainLift && !working.length ? 'warmup' : 'working');
   const [weight, setWeight] = useState(0);
@@ -486,6 +491,22 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
     if (result.ok && mode === 'warmup' && warmups.length + 1 >= warmupSequence.length) setMode('working');
   };
 
+  const addPlannedSet = () => {
+    const previousPlan = current.plannedSets.at(-1);
+    const result = runOperation({
+      type: 'ADD_PLANNED_SET',
+      workoutExerciseId: current.id,
+      source: 'manual',
+      set: {
+        type: working.at(-1)?.type ?? previousPlan?.type ?? 'working',
+        targetReps: working.at(-1)?.reps ?? previousPlan?.targetReps ?? previousPlan?.repRange?.[0] ?? reps,
+        suggestedWeight: working.at(-1)?.weight ?? previousPlan?.suggestedWeight ?? weight,
+        note: 'Added during the workout',
+      },
+    }, 'Set added to today’s plan', 'Log it when you perform it.');
+    if (result.ok) setMode('working');
+  };
+
   const totalDone = workout.exercises.filter((item) => item.status === 'complete' || item.status === 'skipped').length;
 
   return (
@@ -517,14 +538,21 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
           <div><p className="eyebrow">Now lifting</p><h1>{exercise.shortName}</h1></div>
         </div>
 
+        <ExerciseVisual exercise={exercise} variant="hero" />
+
         {current.originalExerciseId && (
           <div className="substitution-banner"><RotateCcw /><span>Replaced {getExercise(current.originalExerciseId).shortName}</span><strong>{current.substitutionReason}</strong></div>
         )}
 
-        <div className="lift-context-grid">
+        <div className="lift-context-grid concise-context">
           <div><span>Last session</span><strong>{priorWorking[0] ? `${priorWorking[0].weight} × ${priorWorking[0].reps}` : 'No history'}</strong><small>{priorWorking[0]?.rpe ? `RPE ${priorWorking[0].rpe}` : history ? shortDate.format(dateFromKey(history.workout.date)) : '—'}</small></div>
           <div><span>Today’s target</span><strong>{planLabel(current).split(' · ')[0]}</strong><small>{current.adaptationNote ?? 'From your program'}</small></div>
-          <div className="suggested-stat"><span>{current.userSelectedWeight ? 'Your decision' : 'Suggested'}</span><strong>{current.userSelectedWeight ?? recommendation?.suggestedWeight ?? current.plannedSets[0]?.suggestedWeight ?? '—'} × {recommendation?.suggestedReps ?? current.plannedSets[0]?.targetReps ?? current.plannedSets[0]?.repRange?.[0] ?? '—'}</strong><small>{current.userSelectedWeight ? 'AI won’t override this' : 'Based on history'}</small></div>
+        </div>
+
+        <div className={`next-set-card ${current.userSelectedWeight ? 'user-decision' : ''}`}>
+          <span>{current.userSelectedWeight ? 'Your decision' : recommendation ? 'Gym Bro suggestion' : 'From today’s plan'}</span>
+          <strong>{current.userSelectedWeight ?? recommendation?.suggestedWeight ?? current.plannedSets[Math.min(working.length, current.plannedSets.length - 1)]?.suggestedWeight ?? '—'} <small>{state.preferences.units}</small> × {recommendation?.suggestedReps ?? current.plannedSets[Math.min(working.length, current.plannedSets.length - 1)]?.targetReps ?? current.plannedSets[Math.min(working.length, current.plannedSets.length - 1)]?.repRange?.[0] ?? '—'}</strong>
+          <em>{current.userSelectedWeight ? 'This overrides the recommendation.' : 'You can change this before logging.'}</em>
         </div>
 
         {recommendation && (
@@ -550,7 +578,7 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
         </Collapsible>
 
         <div className="sets-block working-block">
-          <div className="sets-block-heading static-heading"><div><span>Working sets</span><small>{working.length}/{current.sessionTargetSets ?? current.plannedSets.length} done</small></div></div>
+          <div className="sets-block-heading static-heading"><div><span>Performed working sets</span><small>{working.length}/{current.sessionTargetSets ?? current.plannedSets.length} done</small></div></div>
           <div className="sets-panel">
             {working.length === 0 ? (
               <div className="empty-working"><Weight /><div><strong>Your first working set lands here.</strong><span>Plan and performance stay separate.</span></div></div>
@@ -560,11 +588,12 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
           </div>
         </div>
 
+        {exerciseCue && <div className="exercise-cue"><Sparkles /><div><strong>Your {exercise.shortName} cue</strong><span>{exerciseCue.text}</span></div></div>}
         {current.notes.length > 0 && <div className="exercise-note"><Info />{current.notes.at(-1)}</div>}
 
         <div className="quick-actions" aria-label="Exercise actions">
           <button onClick={() => onSwap(current.id)}><RotateCcw /><span>Change</span></button>
-          <button onClick={() => setMode('working')}><Plus /><span>Add set</span></button>
+          <button onClick={addPlannedSet}><Plus /><span>Add set</span></button>
           <button onClick={() => onNote(current.id)}><Pencil /><span>Notes</span></button>
           <button onClick={() => runOperation({ type: 'SKIP_EXERCISE', workoutExerciseId: current.id, source: 'manual' }, 'Exercise skipped')}><SkipForward /><span>Skip</span></button>
           <button className="ask-action" onClick={onCoach}><Sparkles /><span>Ask AI</span></button>
@@ -713,6 +742,7 @@ function CoachSheet({ open, onOpenChange, screen, workoutExerciseId, state, stat
             <div className="coach-logo"><Sparkles /></div>
             <div><SheetTitle>Ask Gym Bro</SheetTitle><SheetDescription>{screen === 'active' ? contextName : `${screen[0].toUpperCase()}${screen.slice(1)} context`}</SheetDescription></div>
           </div>
+          <span className="coach-preview-badge">Deterministic preview · no live LLM</span>
         </SheetHeader>
 
         <div className="coach-context-chip"><Info /> Looking at {screen === 'active' ? `${contextName} + today’s sets` : screen === 'history' ? 'your structured workout history' : screen === 'programs' ? 'Strength Builder' : 'today’s Push session'}</div>
@@ -742,7 +772,7 @@ function CoachSheet({ open, onOpenChange, screen, workoutExerciseId, state, stat
           <Input value={input} onChange={(event) => setInput(event.target.value)} placeholder={screen === 'active' ? 'Try “225 for 5”…' : 'Ask about your training…'} aria-label="Message Gym Bro" />
           <Button type="submit" size="icon" aria-label="Send message"><ArrowRight /></Button>
         </form>
-        <p className="coach-footnote">Clear logs save instantly with undo. Uncertain interpretations wait for you.</p>
+        <p className="coach-footnote">This MVP uses rules plus your structured workout data—not a live AI API. Clear commands save with undo; uncertain ones wait for you.</p>
       </SheetContent>
     </Sheet>
   );
@@ -756,15 +786,14 @@ function SwapDialog({ state, workoutExerciseId, onClose, runOperation }: {
 }) {
   const workoutExercise = state.today.exercises.find((exercise) => exercise.id === workoutExerciseId);
   const exercise = workoutExercise ? getExercise(workoutExercise.exerciseId) : undefined;
-  const replacements = exercise ? substitutionsFor(exercise.id) : [];
-  const [showMore, setShowMore] = useState(false);
+  const [query, setQuery] = useState('');
+  const replacements = exercise
+    ? rankSubstitutions(exercise.id, state.preferences, query).slice(0, query ? 12 : 6)
+    : [];
 
-  useEffect(() => setShowMore(false), [workoutExerciseId]);
+  useEffect(() => setQuery(''), [workoutExerciseId]);
 
   if (!workoutExercise || !exercise) return null;
-  const options = showMore
-    ? exerciseDatabase.filter((candidate) => candidate.id !== exercise.id && candidate.movementPattern === exercise.movementPattern)
-    : replacements;
 
   return (
     <Dialog open={Boolean(workoutExerciseId)} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
@@ -772,11 +801,12 @@ function SwapDialog({ state, workoutExerciseId, onClose, runOperation }: {
         <DialogHeader>
           <p className="dialog-kicker">Change exercise</p>
           <DialogTitle>Replace {exercise.shortName}</DialogTitle>
-          <DialogDescription>Recommended first—same intent, useful equipment alternatives.</DialogDescription>
+          <DialogDescription>Recommended first. Search by exercise, muscle, movement, or equipment.</DialogDescription>
         </DialogHeader>
+        <div className="swap-search"><Search /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try “dumbbell shoulder”" aria-label="Search replacement exercises" />{query && <button aria-label="Clear replacement search" onClick={() => setQuery('')}><X /></button>}</div>
         <div className="replacement-list">
-          <p>Recommended</p>
-          {options.map((candidate, index) => (
+          <p>{query ? `Results for “${query}”` : 'Recommended'}</p>
+          {replacements.map((candidate) => (
             <button key={candidate.id} onClick={() => {
               const result = runOperation({
                 type: 'CHANGE_EXERCISE',
@@ -787,14 +817,14 @@ function SwapDialog({ state, workoutExerciseId, onClose, runOperation }: {
               }, 'Exercise changed', `${exercise.shortName} → ${candidate.shortName}`);
               if (result.ok) onClose();
             }}>
-              <span className="replacement-rank">{index + 1}</span>
+              <ExerciseVisual exercise={candidate} variant="compact" />
               <div><strong>{candidate.name}</strong><small>{candidate.movementPattern} · {candidate.equipment.join(', ')}</small></div>
               <span className="fit-pill">{candidate.primaryMuscles[0]}</span>
               <ChevronRight />
             </button>
           ))}
+          {replacements.length === 0 && <div className="empty-state compact-empty"><Search /><h3>No matching exercise</h3><p>Try a muscle, movement, or different spelling.</p></div>}
         </div>
-        <button className="more-options" onClick={() => setShowMore((value) => !value)}>{showMore ? 'Show recommended' : 'More similar movements'}<ChevronDown /></button>
       </DialogContent>
     </Dialog>
   );
@@ -880,15 +910,19 @@ function NoteDialog({ workoutExerciseId, onClose, runOperation }: {
   runOperation: (operation: WorkoutOperation, message?: string, description?: string) => ValidationResult;
 }) {
   const [note, setNote] = useState('');
-  useEffect(() => setNote(''), [workoutExerciseId]);
+  const [remember, setRemember] = useState(false);
+  useEffect(() => { setNote(''); setRemember(false); }, [workoutExerciseId]);
   if (!workoutExerciseId) return null;
   return (
     <Dialog open={Boolean(workoutExerciseId)} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="gym-dialog">
         <DialogHeader><p className="dialog-kicker">Training context</p><DialogTitle>Add a note</DialogTitle><DialogDescription>Useful next time: setup changes, discomfort, cues, or how the movement felt.</DialogDescription></DialogHeader>
         <textarea className="gym-textarea" value={note} onChange={(event) => setNote(event.target.value)} placeholder="e.g. Shoulder felt better with a slightly narrower grip." aria-label="Exercise note" />
+        <label className="remember-cue" htmlFor="remember-exercise-cue"><span><strong>Remember as an exercise cue</strong><small>Surface this when the exercise is current. Leave off for a session-only note.</small></span><Switch id="remember-exercise-cue" checked={remember} onCheckedChange={setRemember} /></label>
         <DialogFooter className="gym-dialog-footer"><Button variant="outline" onClick={onClose}>Cancel</Button><Button onClick={() => {
-          const result = runOperation({ type: 'ADD_NOTE', workoutExerciseId, note, source: 'manual' }, 'Note saved');
+          const result = runOperation(remember
+            ? { type: 'SAVE_EXERCISE_MEMORY', workoutExerciseId, kind: 'cue', text: note, confirmed: true, source: 'manual' }
+            : { type: 'ADD_NOTE', workoutExerciseId, note, source: 'manual' }, remember ? 'Exercise cue remembered' : 'Note saved');
           if (result.ok) onClose();
         }}>Save note</Button></DialogFooter>
       </DialogContent>
@@ -936,12 +970,6 @@ function HistoryScreen({ state, onCoach }: { state: GymState; onCoach: () => voi
 
       <div className="history-search"><Search /><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search workouts or exercises" aria-label="Search workout history" />{query && <button aria-label="Clear search" onClick={() => setQuery('')}><X /></button>}</div>
 
-      <section className="trend-card">
-        <div className="trend-copy"><p>Bench trend</p><h2>{benchTrend.at(-1)?.weight ?? 235} <span>lb</span></h2><small>Latest top set · {benchTrend.at(-1)?.reps ?? 5} reps</small></div>
-        <BenchTrendChart points={benchTrend} />
-        <button onClick={onCoach}>Ask about this <ArrowRight /></button>
-      </section>
-
       <div className="section-heading"><div><h2>Recent workouts</h2><span>{filtered.length} sessions</span></div><span className="history-range">All time</span></div>
 
       <div className="history-list">
@@ -968,6 +996,12 @@ function HistoryScreen({ state, onCoach }: { state: GymState; onCoach: () => voi
           );
         })}
       </div>
+
+      <section className="trend-card secondary-trend">
+        <div className="trend-copy"><p>Bench trend</p><h2>{benchTrend.at(-1)?.weight ?? 235} <span>lb</span></h2><small>Latest top set · {benchTrend.at(-1)?.reps ?? 5} reps</small></div>
+        <BenchTrendChart points={benchTrend} />
+        <button onClick={onCoach}>Ask about this <ArrowRight /></button>
+      </section>
 
       <button className="floating-ai-button" onClick={onCoach}><Sparkles /> Ask AI about your training</button>
     </div>
@@ -1148,7 +1182,7 @@ function NewDayDialog({ open, onClose, addDay }: { open: boolean; onClose: () =>
 }
 
 const autonomyOptions: Array<{ value: AutonomyLevel; label: string; description: string }> = [
-  { value: 'track', label: 'Track', description: 'Log and remember. Advice stays quiet.' },
+  { value: 'track', label: 'Track Only', description: 'Log and remember. Advice stays quiet.' },
   { value: 'assist', label: 'Assist', description: 'Recommend weights, swaps, and small adjustments.' },
   { value: 'coach', label: 'Coach', description: 'Help manage progression and today’s workout.' },
   { value: 'full_coach', label: 'Full Coach', description: 'Build and manage programming.' },
@@ -1179,7 +1213,7 @@ function ProfileScreen({ state, updatePreferences, onReset }: {
         <div className="profile-avatar">BD</div><div><h2>Brian</h2><p>Intermediate · Powerbuilding</p></div>
       </section>
 
-      <SettingsSection title="AI control" description="You can change this anytime. Your explicit choices always override the AI.">
+      <SettingsSection title="How involved should Gym Bro be?" description="This MVP uses a deterministic coach, not a live LLM. Your explicit choices always override suggestions.">
         <RadioGroup value={state.preferences.autonomy} onValueChange={(value) => { updatePreferences({ autonomy: value as AutonomyLevel }); successToast('AI control updated', autonomyOptions.find((option) => option.value === value)?.label); }} className="settings-radio-grid autonomy-grid">
           {autonomyOptions.map((option) => (
             <label htmlFor={`autonomy-${option.value}`} key={option.value} className={`settings-option ${state.preferences.autonomy === option.value ? 'selected' : ''}`}>
@@ -1204,6 +1238,7 @@ function ProfileScreen({ state, updatePreferences, onReset }: {
       <SettingsSection title="What I remember" description="Confirmed preferences are different from patterns I’ve only noticed.">
         <div className="memory-groups">
           <div><span className="memory-label confirmed"><Check /> Confirmed</span><div className="memory-tags">{state.preferences.trainingStyle.map((item) => <span key={item}>{item}</span>)}{state.preferences.unavailableEquipment.map((item) => <span key={item}>No {item}</span>)}</div></div>
+          <div><span className="memory-label confirmed"><Sparkles /> Exercise cues</span><div className="memory-cue-list">{state.trainingMemories.filter((memory) => memory.kind === 'cue' && memory.confirmed).map((memory) => <p key={memory.id}><strong>{getExercise(memory.exerciseId).shortName}</strong>{memory.text}</p>)}</div></div>
           <div><span className="memory-label observed"><Info /> Observed</span><div className="observed-row"><p>{state.preferences.observedBehaviors[0]}</p><button onClick={() => updatePreferences({ observedBehaviors: [] })}>Dismiss</button></div></div>
         </div>
       </SettingsSection>
@@ -1232,11 +1267,7 @@ function SettingsSection({ title, description, children }: { title: string; desc
 function ExerciseLibrary({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'main' | 'accessory'>('all');
-  const results = exerciseDatabase.filter((exercise) => {
-    const matchesFilter = filter === 'all' || (filter === 'main' ? exercise.isMainLift : !exercise.isMainLift);
-    const haystack = [exercise.name, exercise.movementPattern, ...exercise.primaryMuscles, ...exercise.equipment].join(' ').toLowerCase();
-    return matchesFilter && haystack.includes(query.toLowerCase());
-  });
+  const results = searchExercises(query, { filter });
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="library-sheet">
@@ -1246,7 +1277,7 @@ function ExerciseLibrary({ open, onOpenChange }: { open: boolean; onOpenChange: 
         <div className="library-results">
           {results.map((exercise) => (
             <article key={exercise.id}>
-              <div className={`exercise-glyph ${exercise.category}`}><Dumbbell /></div>
+              <ExerciseVisual exercise={exercise} variant="card" />
               <div><h3>{exercise.name}</h3><p>{exercise.movementPattern} · {exercise.primaryMuscles.join(', ')}</p><div className="exercise-metadata"><span>{exercise.equipment[0]}</span><span>{exercise.difficulty}</span><span>{exercise.strengthSuitability >= 8 ? 'Strength' : 'Hypertrophy'}</span></div></div>
             </article>
           ))}

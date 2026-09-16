@@ -15,10 +15,22 @@ export type WarmupPreference = 'dont_track' | 'track_if_wanted' | 'always_track'
 export type RpePreference = 'minimal' | 'balanced' | 'detailed';
 export type OperationSource = 'manual' | 'ai' | 'webmcp';
 
+export interface ExerciseMedia {
+  kind: 'image';
+  src: string;
+  alt: string;
+  sourceType: 'generated' | 'licensed' | 'user';
+  sourceLabel?: string;
+  attribution?: string;
+}
+
 export interface ExerciseKnowledge {
   id: string;
   name: string;
   shortName: string;
+  aliases?: string[];
+  description?: string;
+  instructions?: string[];
   category: 'barbell' | 'dumbbell' | 'machine' | 'cable' | 'bodyweight';
   movementPattern: string;
   primaryMuscles: string[];
@@ -29,6 +41,9 @@ export interface ExerciseKnowledge {
   hypertrophySuitability: number;
   isMainLift: boolean;
   similarExerciseIds: string[];
+  stabilityRequirement?: 'low' | 'moderate' | 'high';
+  fatigueCost?: 'low' | 'moderate' | 'high';
+  media?: ExerciseMedia;
 }
 
 export interface PlannedSet {
@@ -147,6 +162,16 @@ export interface Interpretation {
   createdAt: string;
 }
 
+export interface TrainingMemory {
+  id: string;
+  exerciseId: string;
+  kind: 'cue' | 'observation' | 'preference';
+  text: string;
+  confirmed: boolean;
+  source: OperationSource;
+  createdAt: string;
+}
+
 export interface GymState {
   version: number;
   today: Workout;
@@ -155,6 +180,7 @@ export interface GymState {
   preferences: UserPreferences;
   recommendations: Recommendation[];
   interpretations: Interpretation[];
+  trainingMemories: TrainingMemory[];
 }
 
 export type WorkoutOperation =
@@ -175,6 +201,12 @@ export type WorkoutOperation =
     }
   | { type: 'REMOVE_SET'; workoutExerciseId: string; setId: string; source: OperationSource }
   | {
+      type: 'ADD_PLANNED_SET';
+      workoutExerciseId: string;
+      set: Omit<PlannedSet, 'id'>;
+      source: OperationSource;
+    }
+  | {
       type: 'CHANGE_EXERCISE';
       workoutExerciseId: string;
       replacementExerciseId: string;
@@ -183,6 +215,14 @@ export type WorkoutOperation =
     }
   | { type: 'SKIP_EXERCISE'; workoutExerciseId: string; source: OperationSource }
   | { type: 'ADD_NOTE'; workoutExerciseId: string; note: string; source: OperationSource }
+  | {
+      type: 'SAVE_EXERCISE_MEMORY';
+      workoutExerciseId: string;
+      kind: TrainingMemory['kind'];
+      text: string;
+      confirmed: boolean;
+      source: OperationSource;
+    }
   | { type: 'SET_USER_WEIGHT'; workoutExerciseId: string; weight: number; source: OperationSource }
   | { type: 'ADAPT_FOR_TIME'; minutes: number; source: OperationSource }
   | { type: 'COMPLETE_WORKOUT'; source: OperationSource }

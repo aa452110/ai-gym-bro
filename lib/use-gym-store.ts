@@ -15,7 +15,21 @@ import type {
 } from './gym-types';
 import { applyWorkoutOperation, validateWorkoutOperation } from './workout-engine';
 
-const STORAGE_KEY = 'ai-gym-bro-state-v3';
+const STORAGE_KEY = 'ai-gym-bro-state-v4';
+const LEGACY_STORAGE_KEY = 'ai-gym-bro-state-v3';
+
+function migrateStoredState(stored: GymState) {
+  const seed = createInitialGymState();
+  if (stored.version === seed.version) return stored;
+  if (stored.version === 3) {
+    return {
+      ...stored,
+      version: seed.version,
+      trainingMemories: seed.trainingMemories,
+    } satisfies GymState;
+  }
+  return null;
+}
 
 export function useGymStore() {
   const [state, setState] = useState<GymState>(() => createInitialGymState());
@@ -26,12 +40,13 @@ export function useGymStore() {
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(STORAGE_KEY);
+      const stored = window.localStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(LEGACY_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored) as GymState;
-        if (parsed.version === createInitialGymState().version) {
-          stateRef.current = parsed;
-          setState(parsed);
+        const migrated = migrateStoredState(parsed);
+        if (migrated) {
+          stateRef.current = migrated;
+          setState(migrated);
         }
       }
     } catch {

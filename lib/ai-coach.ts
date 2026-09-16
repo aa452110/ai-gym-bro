@@ -1,7 +1,8 @@
-import { exerciseDatabase, getExercise } from './gym-data';
+import { getExercise } from './gym-data';
+import { findExerciseFromText, rankSubstitutions } from './exercise-search';
 import type {
+  AiAction,
   AiResponse,
-  ExerciseKnowledge,
   GymState,
   Interpretation,
   PerformedSet,
@@ -30,6 +31,7 @@ const currentExercise = (state: GymState, context: CoachContext) =>
   ?? state.today.exercises[state.today.currentExerciseIndex];
 
 const inferSetType = (input: string, exercise: WorkoutExercise): SetType => {
+  if (/cluster/i.test(input)) return 'other';
   if (/warm[ -]?up/i.test(input)) return 'warm_up';
   if (/top(?: set)?/i.test(input)) return 'top_set';
   if (/back[ -]?off/i.test(input)) return 'backoff';
@@ -74,17 +76,7 @@ function dateLabel(date: string) {
 
 function answerHistoryQuestion(state: GymState, input: string): AiResponse | null {
   const query = input.toLowerCase();
-  const exerciseId = query.includes('squat')
-    ? 'back-squat'
-    : query.includes('deadlift')
-      ? 'deadlift'
-      : query.includes('incline')
-        ? 'incline-dumbbell-press'
-        : query.includes('tricep')
-          ? 'triceps-pushdown'
-          : query.includes('bench')
-            ? 'bench-press'
-            : undefined;
+  const exerciseId = findExerciseFromText(input)?.id;
 
   if ((query.includes('shoulder') || query.includes('shoulders')) && (query.includes('lately') || query.includes('doing'))) {
     const inclineHistory = getExerciseHistory(state, 'incline-dumbbell-press');
@@ -163,10 +155,7 @@ function answerHistoryQuestion(state: GymState, input: string): AiResponse | nul
 
 function substitutionResponse(state: GymState, exercise: WorkoutExercise, input: string): AiResponse {
   const knowledge = getExercise(exercise.exerciseId);
-  const available = knowledge.similarExerciseIds
-    .map(getExercise)
-    .filter((candidate) => !candidate.equipment.some((equipment) => state.preferences.unavailableEquipment.includes(equipment)))
-    .slice(0, 4);
+  const available = rankSubstitutions(exercise.exerciseId, state.preferences).slice(0, 4);
   return {
     category: 'substitution',
     text: `${knowledge.shortName} unavailable—no problem. These keep the same basic intent. I’d use ${available[0]?.name ?? 'a similar movement'} first.`,
@@ -195,22 +184,96 @@ export function respondToCoach(state: GymState, input: string, context: CoachCon
   const historical = answerHistoryQuestion(state, clean);
   if (historical) return historical;
 
-  if (/pain|sharp|pinch|hurt|tweak|numb|tingl/i.test(clean)) {
+  if (/^i(?:'|’)m done\.?$|^finish (?:the )?workout\.?$|^end (?:the )?workout\.?$/i.test(clean)) {
+    if (state.today.status !== 'active') {
+      return { category: 'general', text: 'Start the workout first, then I can finish and save it for you.' };
+    }
+    const operation: WorkoutOperation = { type: 'COMPLETE_WORKOUT', source: 'ai' };
     return {
-      category: 'safety',
-      text: `Yeah, I wouldn’t force ${knowledge.shortName} today. Stop the set if the discomfort is sharp, worsening, or changes your movement. We can swap to something that feels normal; persistent or concerning pain is worth getting evaluated by a qualified professional.`,
-      actions: knowledge.similarExerciseIds.slice(0, 3).map((id) => ({
-        label: getExercise(id).shortName,
+      category: 'log',
+      text: 'Workout finished and saved to History.',
+      interpretation: newInterpretation(clean, 0.99, 'Complete and save the workout'),
+      operation,
+      autoApply: true,
+    };
+  }
+
+  const directSwap = clean.match(/(?:change|switch|swap|replace)(?:\s+this)?(?:\s+exercise)?\s+(?:to|for)\s+(.+)/i);
+  if (directSwap) {
+    const replacement = findExerciseFromText(directSwap[1]);
+    if (replacement && replacement.id !== exercise.exerciseId) {
+      const operation: WorkoutOperation = {
+        type: 'CHANGE_EXERCISE',
+        workoutExerciseId: exercise.id,
+        replacementExerciseId: replacement.id,
+        reason: 'User-requested substitution',
+        source: 'ai',
+      };
+      return {
+        category: 'substitution',
+        text: `Changed ${knowledge.shortName} to ${replacement.name}. The original plan is still preserved in the session record.`,
+        interpretation: newInterpretation(clean, 0.99, `Replace ${knowledge.name} with ${replacement.name}`),
+        operation,
+        autoApply: true,
+      };
+    }
+  }
+
+  if (/(?:do|train|hit) shoulders instead|shoulders instead/i.test(query)) {
+    const options = rankSubstitutions(exercise.exerciseId, state.preferences, 'shoulder').slice(0, 4);
+    return {
+      category: 'substitution',
+      text: 'That changes the movement intent, so I won’t guess which shoulder exercise you mean. Pick one and I’ll update this exercise only.',
+      interpretation: newInterpretation(clean, 0.78, 'Replace the current exercise with shoulder work'),
+      actions: options.map((candidate) => ({
+        label: candidate.shortName,
         kind: 'substitution',
-        replacementExerciseId: id,
+        replacementExerciseId: candidate.id,
         operation: {
           type: 'CHANGE_EXERCISE',
           workoutExerciseId: exercise.id,
-          replacementExerciseId: id,
+          replacementExerciseId: candidate.id,
+          reason: 'User changed today’s movement intent',
+          source: 'ai',
+        },
+      })),
+    };
+  }
+
+  if (/pain|sharp|pinch|hurt|tweak|numb|tingl/i.test(clean)) {
+    const observation: WorkoutOperation = {
+      type: 'SAVE_EXERCISE_MEMORY',
+      workoutExerciseId: exercise.id,
+      kind: 'observation',
+      text: clean,
+      confirmed: false,
+      source: 'ai',
+    };
+    return {
+      category: 'safety',
+      text: `Yeah, I wouldn’t force ${knowledge.shortName} today. Stop if it is sharp, worsening, or changes your movement. I can save what you reported as an observation—not a diagnosis—or swap this movement.`,
+      actions: [
+        { label: 'Save observation', kind: 'operation', operation: observation },
+        ...rankSubstitutions(exercise.exerciseId, state.preferences).slice(0, 3).map((candidate): AiAction => ({
+        label: candidate.shortName,
+        kind: 'substitution',
+        replacementExerciseId: candidate.id,
+        operation: {
+          type: 'CHANGE_EXERCISE',
+          workoutExerciseId: exercise.id,
+          replacementExerciseId: candidate.id,
           reason: 'Movement discomfort',
           source: 'ai',
         },
       })),
+      ],
+    };
+  }
+
+  if (/my core is weak|weak core/i.test(clean)) {
+    return {
+      category: 'general',
+      text: 'That may be your read, but one hard set is not enough evidence for me to treat it as a lasting weakness. I can save the specific thing you noticed—like losing your brace—as an observation if you want.',
     };
   }
 
@@ -245,6 +308,92 @@ export function respondToCoach(state: GymState, input: string, context: CoachCon
       category: 'log',
       text: `Got it—${weight} ${state.preferences.units}. That’s your call for today.`,
       interpretation: newInterpretation(clean, 0.99, `User chose ${weight} ${state.preferences.units}`),
+      operation,
+      autoApply: true,
+    };
+  }
+
+  const lastSetRpe = query.match(/(?:last (?:rep|set)|that)(?:\s+was|\s+felt)?\s*(?:an?\s*)?(?:rpe\s*)?([5-9](?:\.5)?|10)(?:\s*rpe)?/i);
+  if (lastSetRpe) {
+    const previous = lastSet(exercise);
+    if (!previous) return { category: 'general', text: 'There isn’t a performed set to attach that RPE to yet.' };
+    const rpe = Number(lastSetRpe[1]);
+    const operation: WorkoutOperation = {
+      type: 'UPDATE_SET',
+      workoutExerciseId: exercise.id,
+      setId: previous.id,
+      changes: { rpe },
+      source: 'ai',
+    };
+    return {
+      category: 'log',
+      text: `Updated the last set to RPE ${rpe}. I’ll use that when deciding what comes next.`,
+      interpretation: newInterpretation(clean, 0.98, `Set last set RPE to ${rpe}`),
+      operation,
+      autoApply: true,
+      actions: [{ label: 'Edit last set', kind: 'edit_last' }],
+    };
+  }
+
+  const correctedReps = query.match(/(?:i )?only got\s+(\d+)(?:\s*reps?)?/i);
+  if (correctedReps) {
+    const previous = lastSet(exercise);
+    if (!previous) return { category: 'general', text: 'There isn’t a performed set to correct yet.' };
+    const reps = Number(correctedReps[1]);
+    const operation: WorkoutOperation = {
+      type: 'UPDATE_SET',
+      workoutExerciseId: exercise.id,
+      setId: previous.id,
+      changes: { reps },
+      source: 'ai',
+    };
+    return {
+      category: 'log',
+      text: `Corrected the last set to ${previous.weight} × ${reps}. The planned target is unchanged.`,
+      interpretation: newInterpretation(clean, 0.98, `Correct last set to ${reps} reps`),
+      operation,
+      autoApply: true,
+      actions: [{ label: 'Edit last set', kind: 'edit_last' }],
+    };
+  }
+
+  if (/another set|one more set|let(?:'|’)s do another/i.test(query)) {
+    const previous = lastSet(exercise);
+    const planned = exercise.plannedSets.at(-1);
+    const operation: WorkoutOperation = {
+      type: 'ADD_PLANNED_SET',
+      workoutExerciseId: exercise.id,
+      set: {
+        type: previous?.type ?? planned?.type ?? 'working',
+        targetReps: previous?.reps ?? planned?.targetReps ?? planned?.repRange?.[0] ?? 8,
+        suggestedWeight: previous?.weight ?? planned?.suggestedWeight,
+        note: 'Added during the workout',
+      },
+      source: 'ai',
+    };
+    return {
+      category: 'log',
+      text: `Added one more ${setTypeLabelsForCopy(operation.set.type)} set to today’s plan. Nothing has been logged yet.`,
+      interpretation: newInterpretation(clean, 0.97, 'Add one planned set'),
+      operation,
+      autoApply: true,
+    };
+  }
+
+  const remember = clean.match(/remember(?: that)?\s+(.+)/i);
+  if (remember) {
+    const operation: WorkoutOperation = {
+      type: 'SAVE_EXERCISE_MEMORY',
+      workoutExerciseId: exercise.id,
+      kind: 'cue',
+      text: remember[1].trim(),
+      confirmed: true,
+      source: 'ai',
+    };
+    return {
+      category: 'log',
+      text: `Saved as a confirmed ${knowledge.shortName} cue. I’ll surface it when this lift is current.`,
+      interpretation: newInterpretation(clean, 0.95, `Remember a cue for ${knowledge.name}`),
       operation,
       autoApply: true,
     };
@@ -330,7 +479,8 @@ export function respondToCoach(state: GymState, input: string, context: CoachCon
     const rpe = rpeMatch ? Number(rpeMatch[1]) : undefined;
     const rirMatch = query.match(/(\d+)\s*(?:rir|reps? in reserve)/i);
     const rir = rirMatch ? Number(rirMatch[1]) : undefined;
-    const operation = makeLogOperation(exercise, clean, weight, reps, rpe, rir);
+    const note = /cluster/i.test(clean) ? 'Cluster set' : undefined;
+    const operation = makeLogOperation(exercise, clean, weight, reps, rpe, rir, note);
     const summary = `${weight} × ${reps}${rpe ? ` @ ${rpe}` : rir !== undefined ? ` · ${rir} RIR` : ''}`;
     return {
       category: 'log',
@@ -373,14 +523,11 @@ export function respondToCoach(state: GymState, input: string, context: CoachCon
 
 export const coachPrompts: Record<CoachContext['screen'], string[]> = {
   today: ['Why 250 × 3?', 'I only have 30 minutes', 'What did I bench last time?'],
-  active: ['225 for 5', 'Same thing', 'Bench is taken'],
+  active: ['225 for 5', 'Last set was RPE 9', 'Bench is taken'],
   history: ['What did I bench last time?', 'Best bench for 5?', 'How has my bench progressed?'],
   programs: ['Shorten Push to 45 minutes', 'Why top sets?', 'Swap cable fly'],
 };
 
-export function substitutionsFor(exerciseId: string) {
-  const exercise = getExercise(exerciseId);
-  return exercise.similarExerciseIds
-    .map((id) => exerciseDatabase.find((item) => item.id === id))
-    .filter((item): item is ExerciseKnowledge => Boolean(item));
+function setTypeLabelsForCopy(type: SetType) {
+  return type.replace('_', ' ');
 }
