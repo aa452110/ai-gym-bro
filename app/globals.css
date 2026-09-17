@@ -70,54 +70,51 @@
   padding:
     clamp(20px, 4vw, 42px) clamp(20px, 4vw, 42px)
     max(20px, env(safe-area-inset-bottom));
-  color: #17120f;
-  background: #e2e5e7;
+  color: #17171a;
+  background: #f7f7f5;
 }
 .launch-button {
-  width: min(100%, 400px) !important;
-  min-height: 80px !important;
+  width: min(100%, 320px) !important;
+  min-height: 60px !important;
   align-self: center;
   justify-self: center;
-  border: 1px solid #d83b27 !important;
-  border-radius: 20px !important;
-  color: #17120f !important;
-  background: linear-gradient(135deg, #ff6543 0%, #ff5738 58%, #ee452d 100%) !important;
-  font-size: 20px !important;
-  font-weight: 900 !important;
-  letter-spacing: -0.02em;
-  text-transform: uppercase;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 14px !important;
+  color: #ffffff !important;
+  background: linear-gradient(180deg, #27282e 0%, #18191d 100%) !important;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.015em;
   box-shadow:
-    0 8px 0 #b52e21,
-    0 20px 40px rgba(38, 32, 28, 0.2);
+    0 1px 2px rgba(18, 18, 22, 0.18),
+    0 10px 28px rgba(35, 36, 52, 0.12);
   transition: transform 150ms ease, box-shadow 150ms ease !important;
 }
 .launch-button:hover {
-  background: linear-gradient(135deg, #ff7051 0%, #ff5d3e 58%, #f14930 100%) !important;
+  background: linear-gradient(180deg, #303139 0%, #1e1f24 100%) !important;
   box-shadow:
-    0 10px 0 #b52e21,
-    0 24px 46px rgba(38, 32, 28, 0.24);
-  transform: translateY(-2px);
+    0 1px 2px rgba(18, 18, 22, 0.2),
+    0 12px 32px rgba(35, 36, 52, 0.16);
+  transform: translateY(-1px);
 }
 .launch-button:focus-visible {
-  outline: 3px solid #2f353b !important;
-  outline-offset: 5px;
+  outline: 2px solid #5b5bd6 !important;
+  outline-offset: 3px;
 }
 .launch-button:active {
-  box-shadow:
-    0 3px 0 #b52e21,
-    0 12px 24px rgba(38, 32, 28, 0.18);
-  transform: translateY(5px);
+  box-shadow: 0 1px 2px rgba(18, 18, 22, 0.2);
+  transform: translateY(0);
 }
 .launch-footer {
   align-self: end;
-  color: #5f646a;
+  color: #707077;
   font-size: 12px;
   letter-spacing: 0.01em;
   text-align: center;
 }
 .launch-footer span {
   margin-left: 4px;
-  color: #454a4f;
+  color: #626269;
   font: 650 12px var(--font-geist-mono);
 }
 @media (prefers-reduced-motion: reduce) {
