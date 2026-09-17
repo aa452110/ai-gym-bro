@@ -74,8 +74,10 @@
   color: #17171a;
   background: #f7f7f5;
 }
+.category-launch-screen { position: relative; }
 .launch-button,
-.category-launch-button {
+.category-launch-button,
+.selected-category-title {
   width: min(100%, 320px) !important;
   min-height: 60px !important;
   align-self: center;
@@ -149,7 +151,6 @@ body:has(.workout-detail-screen) {
   gap: 12px;
   padding-block: 24px;
 }
-.category-launch-item { width: 100%; }
 .category-launch-button {
   position: relative;
   display: flex;
@@ -164,10 +165,44 @@ body:has(.workout-detail-screen) {
   width: 18px;
   transition: transform 150ms ease;
 }
-.category-launch-item.open .category-launch-button svg {
-  transform: rotate(180deg);
+.category-launch-button:hover svg { transform: translateX(2px); }
+.category-screen-back {
+  position: absolute;
+  top: clamp(20px, 4vw, 42px);
+  left: clamp(20px, 4vw, 42px);
+  z-index: 2;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid #d9d9d5;
+  border-radius: 50%;
+  color: #29292e;
+  background: #ffffff;
+  box-shadow: 0 3px 12px rgba(35, 36, 52, 0.06);
 }
-.category-exercise-panel { padding-top: 8px; }
+.category-screen-back:hover { background: #f0f0ed; }
+.category-screen-back:focus-visible {
+  outline: 2px solid #5b5bd6;
+  outline-offset: 3px;
+}
+.category-screen-back svg { width: 18px; }
+.selected-category-content {
+  width: min(100%, 320px);
+  align-self: start;
+  justify-self: center;
+  padding-block: clamp(68px, 12vh, 104px) 32px;
+}
+.selected-category-title {
+  display: flex;
+  width: 100% !important;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  text-align: center;
+}
+.selected-category-title:focus { outline: none; }
+.selected-category-content .category-exercise-list { margin-top: 10px; }
 .category-exercise-list {
   overflow: hidden;
   border: 1px solid #dededb;
@@ -279,29 +314,97 @@ body:has(.workout-detail-screen) {
   font: 650 12px var(--font-geist-mono);
   text-transform: uppercase;
 }
-.workout-set-list { padding: 0 17px; }
-.workout-set-row {
+.workout-set-list { padding: 0 14px; }
+.workout-set-editor-row {
   display: grid;
-  min-height: 64px;
-  grid-template-columns: 40px 1fr auto;
-  align-items: center;
-  gap: 10px;
+  min-height: 88px;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(64px, 0.72fr) 38px;
+  align-items: end;
+  gap: 8px;
+  padding: 12px 0;
   border-bottom: 1px solid #e8e8e5;
 }
-.workout-set-row:last-child { border-bottom: 0; }
-.workout-set-row > span {
+.workout-set-editor-row:last-child { border-bottom: 0; }
+.workout-set-index {
+  align-self: center;
   color: #707077;
   font: 650 12px var(--font-geist-mono);
 }
-.workout-set-row strong {
-  color: #29292e;
-  font-size: 15px;
+.workout-set-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: #707077;
+  font-size: 12px;
   font-weight: 650;
 }
-.workout-set-row small {
-  color: #85858b;
-  font: 650 18px var(--font-geist-mono);
+.workout-set-input[data-slot='input'] {
+  width: 100%;
+  min-width: 0;
+  height: 42px;
+  border: 1px solid #d9d9d5;
+  border-radius: 10px;
+  color: #29292e;
+  background: #f7f7f5;
+  padding: 0 10px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 16px;
+  font-weight: 650;
 }
+.workout-set-input[data-slot='input']:focus-visible {
+  border-color: #5b5bd6;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.16);
+}
+.workout-set-remove,
+.workout-set-remove-spacer {
+  width: 38px;
+  height: 42px;
+}
+.workout-set-remove {
+  display: grid;
+  place-items: center;
+  border: 1px solid #dededb;
+  border-radius: 10px;
+  color: #77777e;
+  background: #ffffff;
+}
+.workout-set-remove:hover {
+  border-color: #d1a4a2;
+  color: #9e3935;
+  background: #fff5f4;
+}
+.workout-set-remove:focus-visible {
+  outline: 2px solid #5b5bd6;
+  outline-offset: 2px;
+}
+.workout-set-remove svg { width: 17px; }
+.add-set-button {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #ffffff;
+  background: linear-gradient(180deg, #27282e 0%, #18191d 100%);
+  font-family: var(--font-space-grotesk), var(--font-geist-sans), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow:
+    0 1px 2px rgba(18, 18, 22, 0.14),
+    0 7px 20px rgba(35, 36, 52, 0.1);
+}
+.add-set-button:hover {
+  background: linear-gradient(180deg, #303139 0%, #1e1f24 100%);
+}
+.add-set-button:focus-visible {
+  outline: 2px solid #5b5bd6;
+  outline-offset: 3px;
+}
+.add-set-button svg { width: 17px; }
 
 @media (prefers-reduced-motion: reduce) {
   .category-launch-button svg,
