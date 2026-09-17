@@ -5,7 +5,7 @@ export function LandingScreen({ onStart }: { onStart: () => void }) {
   return (
     <main className="launch-screen">
       <Button className="launch-button" size="lg" onClick={onStart}>
-        Get started
+        Let&apos;s freaking go
       </Button>
 
       <footer className="launch-footer">

@@ -81,7 +81,7 @@ Preserve the domain vocabulary already used by the app:
 
 | Surface | Current behavior |
 | --- | --- |
-| Opening | Shows one centered Get started button and a quiet version footer. It is an entry gate only; there is no login or account flow. |
+| Opening | Shows one centered Let’s freaking go button and a quiet version footer. It is an entry gate only; there is no login or account flow. |
 | Today | Shows the planned session, program context, exercise list, current recommendation, explanation, and start/resume actions. |
 | Active Workout | Shows elapsed time, progress, exercise context, warm-ups, performed working sets, the next target, quick logging, optional RPE, notes, substitutions, skip/add-set actions, and finish flow. |
 | Ask Gym Bro | Opens a context-aware sheet for Today, Active Workout, History, or Programs. It parses supported phrases deterministically and returns text plus structured operations/actions. |
