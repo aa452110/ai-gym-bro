@@ -35,6 +35,7 @@ import {
 
 import { Button } from '@/components/ui/button';
 import { ExerciseVisual } from '@/components/exercise-visual';
+import { LandingScreen } from '@/components/landing-screen';
 import {
   Collapsible,
   CollapsibleContent,
@@ -126,6 +127,16 @@ function successToast(title: string, description: string | undefined, undo?: () 
 }
 
 export function GymApp() {
+  const [hasStarted, setHasStarted] = useState(false);
+
+  return hasStarted ? (
+    <GymExperience />
+  ) : (
+    <LandingScreen onStart={() => setHasStarted(true)} />
+  );
+}
+
+function GymExperience() {
   const store = useGymStore();
   const { dispatchOperation, stateRef, undo } = store;
   const [tab, setTab] = useState<AppTab>('today');
