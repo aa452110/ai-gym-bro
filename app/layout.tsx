@@ -19,7 +19,7 @@ const spaceGrotesk = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: 'AI Gym Bro — Workout Tracker',
-  description: 'Fast workout tracking with adaptive AI coaching when you want it.',
+  description: 'Choose a muscle group and open a simple set-by-set workout.',
 };
 
 export default function RootLayout({
