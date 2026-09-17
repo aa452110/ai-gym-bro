@@ -32,6 +32,7 @@ Raw model output should never mutate workout data directly.
 
 - `components/gym-app.tsx` — application shell and product UI
 - `lib/gym-types.ts` — shared domain types
+- `lib/app-version.ts` — single displayed app version; bump it for every user-facing update
 - `lib/gym-data.ts` — seeded training data and exercise knowledge
 - `lib/workout-engine.ts` — validated workout operations and adaptation rules
 - `lib/ai-coach.ts` — natural-language parsing and structured coaching responses
@@ -49,6 +50,8 @@ npm run dev
 ```
 
 ## Verify changes
+
+Before validating a user-facing update, increment `APP_VERSION` in `lib/app-version.ts`.
 
 ```bash
 npm run lint

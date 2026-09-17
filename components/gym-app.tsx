@@ -60,6 +60,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Toaster, toast } from '@/components/ui/toast';
 import { coachPrompts, respondToCoach } from '@/lib/ai-coach';
+import { APP_VERSION } from '@/lib/app-version';
 import { rankSubstitutions, searchExercises } from '@/lib/exercise-search';
 import { exerciseDatabase, getExercise, warmupSequence } from '@/lib/gym-data';
 import type {
@@ -295,6 +296,7 @@ function AppShell({ tab, onTabChange, children }: { tab: AppTab; onTabChange: (t
           <span className="product-principle">Training first.</span>
         </header>
         {children}
+        <footer className="app-footer">AI Gym Bro <span>v{APP_VERSION}</span></footer>
         <nav className="bottom-nav" aria-label="Primary navigation">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -629,6 +631,7 @@ function ActiveWorkoutScreen({ state, runOperation, onBack, onCoach, onSwap, onW
 
         <button className="finish-workout-link" onClick={onFinish}>Finish workout <ArrowRight /></button>
       </section>
+      <footer className="app-footer active-footer">AI Gym Bro <span>v{APP_VERSION}</span></footer>
     </main>
   );
 }
